@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Student Birthday Reminder</title>
+  <style>
+    :root{
+      --bg:#f3f4f6; --card:#ffffff; --muted:#6b7280; --accent:#10b981;
+      --danger:#ef4444; --shadow: 0 6px 18px rgba(15,23,42,0.08);
+      --radius:12px;
+    }
+    html,body{height:100%;margin:0;font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial;background:var(--bg);color:#0f172a}
+    .container{max-width:900px;margin:36px auto;padding:20px;}
+    .card{background:var(--card);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow);margin-bottom:16px}
+    h1{margin:0 0 8px;font-size:20px}
+    .row{display:flex;gap:12px;align-items:center}
+    .row.col{flex-direction:column;align-items:stretch}
+    label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
+    input[type="text"], input[type="date"]{padding:8px 10px;border:1px solid #e6e9ee;border-radius:8px;width:100%;box-sizing:border-box}
+    button{cursor:pointer;border:0;padding:8px 12px;border-radius:10px}
+    .btn-primary{background:#0ea5a4;color:white}
+    .btn-green{background:var(--accent);color:white}
+    .btn-danger{background:var(--danger);color:white}
+    ul.students{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px}
+    li.student{display:flex;justify-content:space-between;align-items:center;padding:10px;border-radius:10px;background:linear-gradient(180deg,#fff,#fbfdff);border:1px solid #eef2ff}
+    .meta{display:flex;flex-direction:column}
+    .meta .name{font-weight:600}
+    .meta .dob{font-size:13px;color:var(--muted)}
+    .badge{padding:6px 8px;border-radius:999px;font-size:13px;background:#fff3bf;color:#92400e;border:1px solid #fde68a}
+    .actions{display:flex;gap:8px;align-items:center}
+    
+
+
+    .toast-wrap{position:fixed;right:18px;bottom:18px;width:320px;z-index:9999;display:flex;flex-direction:column;gap:10px}
+    .toast{background:var(--card);border-radius:10px;padding:10px 12px;box-shadow:var(--shadow);border:1px solid #e6eef8;display:flex;gap:10px;align-items:flex-start}
+    .toast .t-body{flex:1}
+    .toast .t-title{font-weight:700;margin-bottom:4px}
+    .toast .t-msg{font-size:13px;color:var(--muted)}
+    .toast .close{background:transparent;border:0;font-size:16px;cursor:pointer}
+    .small{font-size:13px;color:var(--muted)}
+    .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+    @media (max-width:540px){ .toast-wrap{width:90vw;left:5vw;right:5vw} .row{flex-direction:column;align-items:stretch} }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <h1>🎉 Student Birthday Reminder</h1>
+      <div>
+        <button id="checkBtn" class="btn-green">Check Today</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin:0 0 8px">Add a student</h3>
+      <form id="addForm" class="row">
+        <div style="flex:1">
+          <label for="name">Name</label>
+          <input id="name" type="text" placeholder="Student name" required />
+        </div>
+        <div>
+          <label for="dob">Date of birth</label>
+          <input id="dob" type="date" required />
+        </div>
+        <div style="align-self:flex-end">
+          <button type="submit" class="btn-primary">Add</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h3 style="margin:0 0 8px">Students <span id="count" class="small"></span></h3>
+      <ul id="studentsList" class="students" aria-live="polite"></ul>
+    </div>
+  </div>
+
+  <div id="toasts" class="toast-wrap" aria-live="assertive" aria-atomic="true"></div>
+
+  <script>
+    (function(){
+      const STORAGE_KEY = 'students_birthdays_v1';
+      const toastsEl = document.getElementById('toasts');
+      const studentsList = document.getElementById('studentsList');
+      const countEl = document.getElementById('count');
+      const addForm = document.getElementById('addForm');
+      const checkBtn = document.getElementById('checkBtn');
+
+      function getInitialData() {
+        const today = new Date();
+        const mm = String(today.getMonth() + 1).padStart(2,'0');
+        const dd = String(today.getDate()).padStart(2,'0');
+        return [
+          { id: 1, name: 'Aisha Khan', dob: `${today.getFullYear()-18}-${mm}-${dd}` },
+          { id: 2, name: 'Rohit Sharma', dob: '2004-12-05' },
+          { id: 3, name: 'Maya Iyer', dob: '2006-07-14' }
+        ];
+      }
+
+      function loadStudents() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) {
+            const initial = getInitialData();
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
+            return initial;
+          }
+          return JSON.parse(raw);
+        } catch(e) {
+          console.error('load error', e);
+          return getInitialData();
+        }
+      }
+
+      function saveStudents(list) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+      }
+
+      let students = loadStudents();
+
+      
+      function fmtDate(iso) {
+        if(!iso) return '';
+        const d = new Date(iso);
+        return d.toLocaleDateString();
+      }
+
+      function isBirthdayToday(isoDateStr, offsetDays = 0) {
+        if (!isoDateStr) return false;
+        const d = new Date(isoDateStr);
+        const today = new Date();
+        if (offsetDays) today.setDate(today.getDate() + offsetDays);
+        return d.getDate() === today.getDate() && d.getMonth() === today.getMonth();
+      }
+
+      let toastId = 1;
+      function showToast(title, message, options = {}) {
+        const id = toastId++;
+        const el = document.createElement('div');
+        el.className = 'toast';
+        el.setAttribute('data-id', id);
+        el.innerHTML = `
+          <div class="t-body">
+            <div class="t-title">${title}</div>
+            <div class="t-msg">${message}</div>
+          </div>
+          <button class="close" aria-label="Close toast">✕</button>
+        `;
+        const closeBtn = el.querySelector('.close');
+        closeBtn.addEventListener('click', () => {
+          el.remove();
+        });
+        toastsEl.appendChild(el);
+        setTimeout(() => {
+          if (el.parentNode) el.remove();
+        }, options.duration || 6000);
+      }
+
+      function renderList() {
+        studentsList.innerHTML = '';
+        students.forEach(s => {
+          const li = document.createElement('li');
+          li.className = 'student';
+          li.innerHTML = `
+            <div class="meta">
+              <div class="name">${escapeHtml(s.name)}</div>
+              <div class="dob">DOB: ${fmtDate(s.dob)}</div>
+            </div>
+            <div class="actions">
+              ${isBirthdayToday(s.dob) ? '<span class="badge">Today 🎂</span>' : ''}
+              <button data-id="${s.id}" class="btn-danger small remove">Remove</button>
+            </div>
+          `;
+          studentsList.appendChild(li);
+        });
+        countEl.textContent = `(${students.length})`;
+        document.querySelectorAll('.remove').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            const id = Number(e.currentTarget.getAttribute('data-id'));
+            removeStudent(id);
+          });
+        });
+      }
+
+      function addStudent(name, dob) {
+        const id = Date.now();
+        students.push({ id, name, dob });
+        saveStudents(students);
+        renderList();
+        showToast('Student added', `${name} — ${fmtDate(dob)}`);
+      }
+
+      function removeStudent(id) {
+        const idx = students.findIndex(s => s.id === id);
+        if (idx === -1) return;
+        const name = students[idx].name;
+        students.splice(idx,1);
+        saveStudents(students);
+        renderList();
+        showToast('Removed', `${name} removed from list.`);
+      }
+
+      function checkBirthdaysAndNotify({showAlertIfNone = true} = {}) {
+        const todays = students.filter(s => isBirthdayToday(s.dob));
+        if (todays.length === 0) {
+          showToast('No birthdays today', 'No student has a birthday today.');
+          if (showAlertIfNone) alert('No birthdays today.');
+          return;
+        }
+        todays.forEach(s => {
+          const when = fmtDate(s.dob);
+          showToast(`🎉 ${s.name} — Birthday`, `Today (${when}) is ${s.name}'s birthday. Wish them!`, { duration:9000 });
+        });
+      }
+
+      function escapeHtml(unsafe) {
+        return String(unsafe).replace(/[&<"'>]/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; });
+      }
+
+      addForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const name = document.getElementById('name').value.trim();
+        const dob = document.getElementById('dob').value;
+        if (!name || !dob) {
+          showToast('Error', 'Please provide both name and date of birth.');
+          return;
+        }
+        addStudent(name, dob);
+        addForm.reset();
+      });
+
+      checkBtn.addEventListener('click', () => { checkBirthdaysAndNotify({showAlertIfNone:true}); });
+
+      renderList();
+      setTimeout(() => checkBirthdaysAndNotify({showAlertIfNone:false}), 300);
+
+      const hourMs = 1000 * 60 * 60;
+      setInterval(() => checkBirthdaysAndNotify({showAlertIfNone:false}), hourMs);
+
+      window._birthdayReminder = {
+        get students(){ return students },
+        reload(){ students = loadStudents(); renderList(); },
+        check: checkBirthdaysAndNotify
+      };
+    })();
+  </script>
+</body>
+</html>
